@@ -7,8 +7,9 @@
 //!   `purgeable_bytes` 两个指标族，按移植规格省略）；
 //! - 挂载表读取 `/proc/mounts`（原版读 `/proc/1/mountinfo` 并回退
 //!   `/proc/self/mountinfo`，字段更细但排除/去重语义一致）；
-//! - 排除规则逐字取自 `defMountPointsExcluded` / `defFSTypesExcluded` 两个正则，
-//!   以字符串前缀/子树匹配等价实现（不引入 regex 依赖）；
+//! - 排除规则基础取自 `defMountPointsExcluded` / `defFSTypesExcluded` 两个正则，
+//!   以字符串前缀/子树匹配等价实现（不引入 regex 依赖）；本项目扩展 /run
+//!   整树排除（tmpfs 内存盘，与 SNMP 侧磁盘口径对齐）；
 //! - 只读判定使用 statfs 标志位 ST_RDONLY（原版基于挂载选项 ro/emergency_ro）；
 //! - 原版的并发 stat worker 与挂起挂载点超时（stuck mounts）机制未移植，按顺序执行。
 //!
@@ -174,25 +175,23 @@ fn unescape_fstab(path: &str) -> String {
     path.replace("\\040", " ").replace("\\011", "\t")
 }
 
-/// 挂载点排除（等价 Go 正则
-/// `^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)`，
-/// 以字符串前缀/子树判断实现，避免引入 regex 依赖）
+/// 挂载点排除：基础规则等价 Go 正则
+/// `^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/storage/.+)($|/)`；
+/// 本项目扩展 /run 整树排除——/run 为 tmpfs 内存盘挂载（/run、/run/user/*、
+/// /run/lock 等），与 SNMP 侧磁盘口径对齐，避免内存盘噪音混入容量统计。
+/// 以字符串前缀/子树判断实现，避免引入 regex 依赖。
 fn is_excluded_mountpoint(mountpoint: &str) -> bool {
-    // `/dev`、`/proc`、`/sys` 三个分支：目录本身或其子树（等价结尾 `($|/)`，
-    // "/devtools" 这类非整词前缀不命中）
-    for prefix in ["/dev", "/proc", "/sys"] {
+    // `/dev`、`/proc`、`/sys`、`/run` 四个分支：目录本身或其子树
+    // （等价结尾 `($|/)`，"/devtools" 这类非整词前缀不命中）
+    for prefix in ["/dev", "/proc", "/sys", "/run"] {
         if let Some(rest) = mountpoint.strip_prefix(prefix)
             && (rest.is_empty() || rest.starts_with('/'))
         {
             return true;
         }
     }
-    // 其余三个分支要求 `.+`：固定前缀之后至少还有一个字符
-    for prefix in [
-        "/run/credentials/",
-        "/var/lib/docker/",
-        "/var/lib/containers/storage/",
-    ] {
+    // 其余两个分支要求 `.+`：固定前缀之后至少还有一个字符
+    for prefix in ["/var/lib/docker/", "/var/lib/containers/storage/"] {
         if mountpoint
             .strip_prefix(prefix)
             .is_some_and(|rest| !rest.is_empty())
@@ -391,7 +390,9 @@ mod tests {
         assert!(is_excluded_mountpoint("/proc/sys"));
         assert!(is_excluded_mountpoint("/sys"));
         assert!(is_excluded_mountpoint("/sys/fs/cgroup"));
-        // .+ 分支：固定前缀后至少一个字符
+        // 本项目扩展：/run 整树（tmpfs 内存盘）
+        assert!(is_excluded_mountpoint("/run"));
+        assert!(is_excluded_mountpoint("/run/user/1000"));
         assert!(is_excluded_mountpoint("/run/credentials/systemd-x.service"));
         assert!(is_excluded_mountpoint("/var/lib/docker/overlay2/x/merged"));
         assert!(is_excluded_mountpoint(
@@ -400,8 +401,8 @@ mod tests {
         // 非整词前缀不命中（等价正则 ($|/) 边界）
         assert!(!is_excluded_mountpoint("/devtools"));
         assert!(!is_excluded_mountpoint("/procroot"));
+        assert!(!is_excluded_mountpoint("/runtime"));
         // .+ 要求至少一个字符
-        assert!(!is_excluded_mountpoint("/run/credentials"));
         assert!(!is_excluded_mountpoint("/var/lib/docker"));
         // 普通路径不排除
         assert!(!is_excluded_mountpoint("/"));

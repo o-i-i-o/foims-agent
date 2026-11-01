@@ -199,3 +199,18 @@
 1.CI 随仓库拆分正式独立（构建链变更，agent 程序代码零改动）：主仓 ci.yml/release.yml 的 agent-build 任务（fmt/clippy/本机单测 + zig 0.13.0 与 llvm-mingw 20261020 交叉工具链 + AGENT_BACKEND=zigbuild build-agent.sh 多平台组包）整体迁入本仓自建的 .github/workflows/ci.yml（push 全分支 + tag v* 触发，tag 触发时产物随 CI 发布至本仓 Release）与 release.yml（workflow_dispatch 手动发布，prepare 任务从根 Cargo.toml [workspace.package] version 推导 v<version> tag 并校验指向，该 version 与 build-agent.sh 产物命名同源）。补记：v0.5.3（实时秒级采集上报推送通道的版本联动）由主仓 dev_version.md v0.54.0 条目承载，本仓记录此前漏登，自本条起恢复连续。验证：workflow 与原主仓 agent-build 任务逐步对齐复核；cargo 程序代码零改动，仅记录 z+1，Cargo.toml 0.5.3 不联动
 
 
+
+# v0.5.5
+
+# 2026110220300001
+# 2026年11月2日20点30分00秒 第1次修改
+
+1.修复 filesystem 采集器挂载点排除口径与 SNMP 侧不一致（功能 bug 修复，y 段
+  +1）：/run/credentials/.+ 排除扩为 /run 整树——/run 及其子树（/run/user/*、
+  /run/lock 等）均为 tmpfs 内存盘挂载，计入 node_filesystem_size_bytes 会使
+  主机监控磁盘列表混入内存盘噪音、磁盘容量热列被内存盘行干扰，且与 SNMP 侧
+  （主仓 metrics.rs is_excluded_mount 同口径四子树）同机对不上；node_exporter
+  基础排除规则不变，/run 整树为本项目扩展（模块头注释注明）。验证：
+  cargo fmt、clippy、filesystem 7 单测（is_excluded_mountpoint 新增 /run 整树
+  与 /runtime 非整词断言）通过；主仓侧关联版本记录见其 dev_version.md v0.55.0。
+  Cargo.toml 0.5.3→0.5.4 联动（v0.5.4 为 z+1 不联动记录，实际版本自此条起递增）
