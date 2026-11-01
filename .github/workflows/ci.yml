@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    # 全分支触发：覆盖开发分支的 fmt/clippy/test 漂移；保留 tag 触发以
+    # 覆盖正式版发布（tag 命名 v<agent 版本>，版本取根 Cargo.toml
+    # [workspace.package] version，与 build-agent.sh 产物命名同源）
+    branches: [ "**" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main", "master", "Dev" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  # 检查（fmt/clippy/本机单测）→ zig/llvm-mingw 交叉工具链 → 多平台安装包。
+  # 原主仓 ci.yml agent-build 任务随仓库拆分整体迁入，逻辑不变。
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # rpm 提供 rpmbuild（Agent rpm 组装）；build-essential/pkg-config 供本机
+      # target 的 cargo test/clippy 编译 ring（cc）。dpkg-deb 为 ubuntu-latest 自带
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm build-essential pkg-config
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      # 仓库根即本工作空间（自持 Cargo.lock 与 target/），默认缓存即可
+      - name: 缓存依赖
+        uses: Swatinem/rust-cache@v2
+
+      - name: 检查代码格式
+        run: cargo fmt --check
+
+      # --workspace --all-targets：覆盖各成员 crate 的 lib/bin/tests 全部目标。
+      # 本工作空间无主仓式 crate 根 cfg_attr(test, allow) 豁免，生产与测试代码
+      # 均受 -D warnings 强约束（口径说明见 Cargo.toml 护栏注释）
+      - name: 运行 clippy 检查
+        run: cargo clippy --release --workspace --all-targets -- -D warnings
+
+      # 交叉产物无法在 runner 上执行，先对本机 target（x86_64）跑一遍单测，
+      # 让 agent-core/protocol/collectors 的逻辑回归在跨平台构建前就被把关
+      - name: 运行测试
+        run: cargo test --release
+
+      # 交叉后端用 cargo-zigbuild：zig cc 兼任交叉 C 编译器与链接器（ring 等依赖
+      # 直接编），替代 musl.cc 工具链下载——该站点多次间歇不可达（v0.6.3/v0.7.2/
+      # v0.7.3 三轮修复仍失败），最终弃用。zig 由 mlugg/setup-zig 官方社区
+      # Action 安装（minisign 验签 + 多镜像回退 + 自动缓存，比 npm 方式更稳），
+      # 锁精确版本 0.13.0（本地 e2e 已验证该版本与 ring 兼容，有意升级时同步
+      # 更新版本号）；cargo-zigbuild 走 crates.io 稳定版。均不锁哈希（与
+      # v0.7.2 结论一致），功能正确性由 --version 校验与构建产物把关。
+      #
+      # 各目标的 rust-std 组件由 build-agent.sh 内部 rustup target add 安装
+      # （zig 仅接管 C 编译/链接，std 仍来自 rustup），故此处无需预装 targets。
+      - name: 安装 zig 交叉后端
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: 安装 cargo-zigbuild
+        run: |
+          cargo install cargo-zigbuild --locked
+          zig version
+          cargo-zigbuild --version
+
+      # windows gnullvm 交叉工具链：aarch64-pc-windows-gnullvm（官方 tier2
+      # std）需要 llvm-mingw 的 clang/lld 与自带 mingw sysroot，zig 只覆盖
+      # gnu abi 担当不了 gnullvm；版本锁 20261020（升级需连同
+      # build-agent.sh 的 LLVM_MINGW_PREFIX 约定一并重验）
+      - name: 安装 llvm-mingw 交叉工具链
+        run: |
+          curl -fsSL --retry 3 -o /tmp/llvm-mingw.tar.xz \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz
+          sudo mkdir -p /opt/llvm-mingw
+          sudo tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw --strip-components=1
+          /opt/llvm-mingw/bin/aarch64-w64-mingw32-clang --version
+
+      # 全部 tier1/2 Linux 目标出 deb/rpm、windows 双架构目标（amd64/arm64）
+      # 出 zip（exe+服务脚本），产物归集到 dist/packages/
+      - name: 构建多平台安装包
+        run: AGENT_BACKEND=zigbuild bash scripts/build-agent.sh
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-release
+          path: dist/packages/*
+          retention-days: 30
+
+  # tag 推送（v<agent 版本>）时随 CI 发布；手动发布（版本推导 + tag 校验）
+  # 走 release.yml，两条路径不重复构建
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      # artifact 内部为文件平铺（upload-artifact v4 以各 path 的公共祖先为
+      # 根，packages/ 目录层级不进 artifact），files 用目录级通配，避免
+      # 子路径 glob 落空静默丢产物
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-release
+          path: release-assets
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,174 @@
+name: Release
+
+# 手动触发（workflow_dispatch）：任意分支均可在 Actions 页 "Run workflow"
+# 选择分支运行。tag 无需手动填写，由 prepare 任务从根 Cargo.toml 的
+# [workspace.package] version 自动推导（v<version>，与既有 tag 约定一致；
+# 该行同为 build-agent.sh 读取 agent 版本的来源，产物命名天然一致）
+on:
+  workflow_dispatch:
+
+concurrency:
+  # 同一分支的发布串行排队（不取消进行中的发布），避免并发触发
+  # 互相覆盖 tag 与 Release
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+jobs:
+  # 版本推导任务（与主仓 release.yml 的 prepare 任务同构）：tag 不再手动
+  # 填写，从根 Cargo.toml 自动推导并校验 tag 未被其他 commit 占用
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.version.outputs.app_version }}
+      tag_name: ${{ steps.version.outputs.tag_name }}
+
+    steps:
+      # 拉全量历史与 tag，供版本步骤用 git rev-parse 校验 tag 指向
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 校验并导出版本号
+        id: version
+        run: |
+          # 仅在 [workspace.package] 段内取 version（本仓库为 virtual
+          # workspace，agent 家族版本由该段统一下发），避免误读其他段的
+          # 同名字段
+          app_version="$(awk -F '"' '/^\[/{in_package=($0=="[workspace.package]"); next} in_package && /^version = /{print $2; exit}' Cargo.toml)"
+
+          if [[ -z "$app_version" ]] || ! [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "无法从根 Cargo.toml 读取合法版本号（x.y.z）：${app_version}" >&2
+            exit 1
+          fi
+
+          tag_name="v${app_version}"
+
+          # tag 已存在且指向其他 commit：该版本号已发布过别的代码，必须
+          # 先 bump 根 Cargo.toml version 再发布；指向同一 commit 则放行
+          # （重跑覆盖旧产物）
+          if git rev-parse --verify --quiet "refs/tags/${tag_name}^{commit}" >/dev/null; then
+            tagged_commit="$(git rev-parse "refs/tags/${tag_name}^{commit}")"
+            if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+              echo "tag ${tag_name} 已指向 ${tagged_commit}；发布 ${GITHUB_SHA} 请先 bump 根 Cargo.toml [workspace.package] version" >&2
+              exit 1
+            fi
+          fi
+
+          echo "app_version=${app_version}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+
+  # 检查门（fmt/clippy/test）与 ci.yml build 任务同源同级别，随发布再跑一遍
+  # 保证发布物来自通过检查的代码；依赖 prepare 的版本门禁，tag 被占用时
+  # 构建提前失败不白跑
+  build:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # rpm 提供 rpmbuild（Agent rpm 组装）；build-essential/pkg-config 供本机
+      # target 的 cargo test/clippy 编译 ring（cc）。dpkg-deb 为 ubuntu-latest 自带
+      - name: 安装系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm build-essential pkg-config
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      # 仓库根即本工作空间（自持 Cargo.lock 与 target/），默认缓存即可
+      - name: 缓存依赖
+        uses: Swatinem/rust-cache@v2
+
+      - name: 检查代码格式
+        run: cargo fmt --check
+
+      # --workspace --all-targets：覆盖各成员 crate 的 lib/bin/tests 全部目标。
+      # 本工作空间无主仓式 crate 根 cfg_attr(test, allow) 豁免，生产与测试代码
+      # 均受 -D warnings 强约束（口径说明见 Cargo.toml 护栏注释）
+      - name: 运行 clippy 检查
+        run: cargo clippy --release --workspace --all-targets -- -D warnings
+
+      # 交叉产物无法在 runner 上执行，先对本机 target（x86_64）跑一遍单测，
+      # 让 agent-core/protocol/collectors 的逻辑回归在跨平台构建前就被把关
+      - name: 运行测试
+        run: cargo test --release
+
+      - name: 安装 zig 交叉后端
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      - name: 安装 cargo-zigbuild
+        run: |
+          cargo install cargo-zigbuild --locked
+          zig version
+          cargo-zigbuild --version
+
+      # windows gnullvm 交叉工具链：aarch64-pc-windows-gnullvm（官方 tier2
+      # std）需要 llvm-mingw 的 clang/lld 与自带 mingw sysroot，zig 只覆盖
+      # gnu abi 担当不了 gnullvm；版本锁 20261020（升级需连同
+      # build-agent.sh 的 LLVM_MINGW_PREFIX 约定一并重验）
+      - name: 安装 llvm-mingw 交叉工具链
+        run: |
+          curl -fsSL --retry 3 -o /tmp/llvm-mingw.tar.xz \
+            https://github.com/mstorsjo/llvm-mingw/releases/download/20261020/llvm-mingw-20261020-ucrt-ubuntu-22.04-x86_64.tar.xz
+          sudo mkdir -p /opt/llvm-mingw
+          sudo tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw --strip-components=1
+          /opt/llvm-mingw/bin/aarch64-w64-mingw32-clang --version
+
+      # 全部 tier1/2 Linux 目标出 deb/rpm、windows 双架构目标（amd64/arm64）
+      # 出 zip（exe+服务脚本），产物归集到 dist/packages/
+      - name: 构建多平台安装包
+        run: AGENT_BACKEND=zigbuild bash scripts/build-agent.sh
+
+      # artifact 名带仓标识：upload-artifact v4 同名二次上传会直接失败
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-release
+          path: dist/packages/*
+          retention-days: 30
+
+  # 发布物来自 build 任务的 artifact，本任务不重复构建；tag 取 prepare 任务
+  # 自动推导结果
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      # artifact 内部为文件平铺（upload-artifact v4 以各 path 的公共祖先为
+      # 根，packages/ 目录层级不进 artifact），files 用目录级通配，避免
+      # 子路径 glob 落空静默丢产物
+      - name: 下载构建产物
+        uses: actions/download-artifact@v4
+        with:
+          name: agent-release
+          path: release-assets
+
+      # tag 来自 prepare 自动推导并已校验指向：不存在则随 Release 创建于
+      # 本次运行的 commit（target_commitish 固定 github.sha，避免新建 tag
+      # 默认落到默认分支 HEAD）；已存在则更新 Release 并覆盖同名资产
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          target_commitish: ${{ github.sha }}
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

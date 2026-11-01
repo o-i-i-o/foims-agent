@@ -1,0 +1,75 @@
+# FOIMS Agent 独立工作空间：与 foims 主程序（服务端）通过网络通信解耦，
+# 自行管理版本与发布节奏。协议类型与 foims-common 保持人工同步（见
+# crates/foims-protocol 模块文档）。
+#
+# 注意：首个 `version = ` 行（[workspace.package]）是 scripts/build-agent.sh
+# 读取 agent 版本的来源，调整文件结构时勿将其移到其他 `version` 行之后。
+[workspace]
+members = [
+    "crates/foims-agent-core",
+    "crates/foims-protocol",
+    "crates/foims-agent",
+    "crates/foims-agent-windows",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.5.3"
+edition = "2024"
+authors = ["oi-io <boss@oi-io.cc>"]
+license = "GPL-3.0-or-later"
+
+# 与 AGENTS.md 对应的护栏（warn 级，CI/验证以 -D warnings 强制）。
+# 与 foims 主仓的差异：unsafe_code 用 deny 而非 forbid——windows 平台层
+# 需要 FFI，在 FFI 模块（ffi.rs 采集侧 / service.rs 服务侧）局部 allow
+# （deny 可被局部 allow 覆盖，forbid 不可）；clippy 不启用 allow_attributes
+# 护栏（否则上述局部 allow 无用）。
+# 测试代码不设主仓式的 crate 根 #![cfg_attr(test, allow(unwrap_used,
+# expect_used))] 豁免：本工作空间单测统一用 unwrap_or_else(|e| panic!)
+# 取成功值、matches! 直接断言 Err 分支，生产与测试代码同受 unwrap/expect
+# 护栏约束（CI agent-build 任务以 -D warnings 强制）。
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+
+[workspace.dependencies]
+# 内部 crate
+foims-agent-core = { path = "crates/foims-agent-core" }
+foims-protocol = { path = "crates/foims-protocol" }
+
+# HTTP/3 / QUIC 上报链路（quinn+rustls-ring 纯用户态，musl 静态友好，无 OpenSSL）
+bytes = "1.12.1"
+h3 = "0.0.8"
+h3-quinn = "0.0.10"
+http = "1.5.0"
+quinn = { version = "0.11.12", default-features = false, features = ["log", "rustls-ring", "runtime-tokio"] }
+rustls = { version = "0.23.46", default-features = false, features = ["logging", "ring", "std"] }
+
+# 异步运行时
+tokio = { version = "1.54.1", features = ["full"] }
+
+# 序列化 / 配置 / 错误 / 日志
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+thiserror = "2.0.21"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+# 平台能力
+chrono = { version = "0.4.45", features = ["serde"] }
+rand = "0.10.3"
+rustix = { version = "1.1.5", default-features = false, features = ["std", "fs", "system", "process", "param"] }
+uuid = { version = "1.29.0", features = ["v4", "serde"] }
+
+# 证书剩余寿命解析（与服务端 foims-common::x509 同口径）
+x509-parser = "0.18.1"

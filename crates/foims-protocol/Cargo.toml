@@ -1,0 +1,20 @@
+[package]
+name = "foims-protocol"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "FOIMS Agent 上报协议类型与证书辅助（与主仓 foims-common 人工同步的双副本）"
+
+[dependencies]
+serde = { workspace = true }
+x509-parser = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+# x509 测试自签证书（与主仓 foims-common 同版本）
+rcgen = "0.14.10"
+time = "0.3.55"
+
+[lints]
+workspace = true

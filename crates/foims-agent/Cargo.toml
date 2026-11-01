@@ -1,0 +1,33 @@
+[package]
+name = "foims-agent"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "FOIMS Agent（Linux/Unix）：node_exporter 的 Rust 重写，主机指标采集 + HTTP/3 mTLS 上报 + 文本/JSON 输出"
+
+[dependencies]
+# 平台无关框架（采集器 trait/抓取编排/上报 transport）
+foims-agent-core = { workspace = true }
+# 上报协议类型（与主仓 foims-common 同步的双副本）
+foims-protocol = { workspace = true }
+
+# RFC3339 时刻（collected_at）
+chrono = { workspace = true }
+# machine-id 兜底生成
+uuid = { workspace = true }
+
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+# 上报循环运行时（core Reporter 的 async 方法由 bin 入口驱动）
+tokio = { workspace = true }
+# 系统调用安全封装：filesystem 采集器 statfs、uname 采集器 uname（crate 内零 unsafe）
+rustix = { workspace = true }
+
+[dev-dependencies]
+# machine-id / 续期落盘等测试的自签证书
+rcgen = "0.14.10"
+
+[lints]
+workspace = true

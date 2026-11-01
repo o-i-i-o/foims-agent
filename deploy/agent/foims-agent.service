@@ -1,0 +1,12 @@
+[Unit]
+Description=FOIMS Agent host metrics collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/foims-agent --config /etc/foims-agent/agent.toml --cert-dir /etc/foims-agent
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
