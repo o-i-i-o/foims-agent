@@ -6,28 +6,40 @@
 pub mod arp;
 pub mod bonding;
 pub mod boottime;
+pub mod btrfs;
 pub mod conntrack;
 pub mod cpu;
 pub mod cpufreq;
 pub mod diskstats;
 pub mod dmi;
+pub mod dmmultipath;
 pub mod edac;
 pub mod entropy;
+pub mod fibrechannel;
 pub mod filefd;
 pub mod filesystem;
 pub mod hwmon;
+pub mod infiniband;
+pub mod ipvs;
 pub mod kernel_hung;
 pub mod loadavg;
+pub mod mdadm;
 pub mod meminfo;
+pub mod netclass;
 pub mod netdev;
 pub mod netstat;
+pub mod nfs;
+pub mod nfsd;
+pub mod nvme;
 pub mod os;
+pub mod powersupplyclass;
 pub mod pressure;
 pub mod schedstat;
 pub mod selinux;
 pub mod sockstat;
 pub mod softnet;
 pub mod stat;
+pub mod tapestats;
 pub mod textfile;
 pub mod thermal_zone;
 pub mod time;
@@ -35,6 +47,8 @@ pub mod udp_queues;
 pub mod uname;
 pub mod vmstat;
 pub mod watchdog;
+pub mod xfs;
+pub mod zfs;
 
 use foims_agent_core::collector::Collector;
 
@@ -44,28 +58,40 @@ pub fn build_defaults() -> Vec<Box<dyn Collector>> {
         Box::new(arp::ArpCollector::default()),
         Box::new(bonding::BondingCollector::default()),
         Box::new(boottime::BootTimeCollector::default()),
+        Box::new(btrfs::BtrfsCollector::default()),
         Box::new(conntrack::ConntrackCollector::default()),
         Box::new(cpu::CpuCollector::default()),
         Box::new(cpufreq::CpufreqCollector::default()),
         Box::new(diskstats::DiskstatsCollector::default()),
         Box::new(dmi::DmiCollector::default()),
+        Box::new(dmmultipath::DmMultipathCollector::default()),
         Box::new(edac::EdacCollector::default()),
         Box::new(entropy::EntropyCollector::default()),
         Box::new(filefd::FileFdCollector::default()),
+        Box::new(fibrechannel::FibreChannelCollector::default()),
         Box::new(filesystem::FilesystemCollector::default()),
         Box::new(hwmon::HwmonCollector::default()),
+        Box::new(infiniband::InfinibandCollector::default()),
+        Box::new(ipvs::IpvsCollector::default()),
         Box::new(kernel_hung::KernelHungCollector::default()),
         Box::new(loadavg::LoadavgCollector::default()),
+        Box::new(mdadm::MdadmCollector::default()),
         Box::new(meminfo::MeminfoCollector::default()),
+        Box::new(netclass::NetClassCollector::default()),
         Box::new(netdev::NetdevCollector::default()),
         Box::new(netstat::NetstatCollector::default()),
+        Box::new(nfs::NfsCollector::default()),
+        Box::new(nfsd::NfsdCollector::default()),
+        Box::new(nvme::NvmeCollector::default()),
         Box::new(os::OsCollector::default()),
+        Box::new(powersupplyclass::PowerSupplyClassCollector::default()),
         Box::new(pressure::PressureStatsCollector::default()),
         Box::new(schedstat::SchedstatCollector::default()),
         Box::new(selinux::SelinuxCollector::default()),
         Box::new(sockstat::SockstatCollector::default()),
         Box::new(softnet::SoftnetCollector::default()),
         Box::new(stat::StatCollector::default()),
+        Box::new(tapestats::TapestatsCollector::default()),
         Box::new(textfile::TextFileCollector::default()),
         Box::new(thermal_zone::ThermalZoneCollector::default()),
         Box::new(time::TimeCollector::default()),
@@ -73,5 +99,7 @@ pub fn build_defaults() -> Vec<Box<dyn Collector>> {
         Box::new(uname::UnameCollector),
         Box::new(vmstat::VmstatCollector::default()),
         Box::new(watchdog::WatchdogCollector::default()),
+        Box::new(xfs::XfsCollector::default()),
+        Box::new(zfs::ZfsCollector::default()),
     ]
 }

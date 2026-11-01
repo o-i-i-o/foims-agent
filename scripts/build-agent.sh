@@ -44,8 +44,12 @@
 #     LLVM_MINGW_PREFIX 提供（默认 /opt/llvm-mingw）。aarch64 为实验性
 #     目标：ring 在 gnullvm 的汇编路径未经长期验证，构建失败会进 FAILED
 #     汇总（不影响其他目标产物）
-#   - tier3 目标：需 nightly + rust-src，用 -Z build-std 现场构建 std
-#     （与 node_exporter .promu.yml 的 crossbuild 矩阵对齐，OpenBSD 另行处理）
+#   - tier3 目标：需 nightly + rust-src，用 -Z build-std 现场构建 std。
+#     架构集对齐 node_exporter .promu.yml 的 crossbuild 矩阵（linux 全
+#     架构）；上游另出的 darwin/netbsd/openbsd 交叉二进制不移植——那些
+#     平台的采集器集合（collector/*_bsd.go、*_darwin.go 等）本项目未
+#     移植，出二进制无采集内容可用，BSD/macOS 支持留待对应平台采集器
+#     落地后再议（与上游矩阵的差异点之二）
 #   - 版本策略：agent 版本独立自管理（版本号取本工作空间根 Cargo.toml 的
 #     [workspace.package] version，即 agent 家族版本），体现在系统包文件名
 #     与包内 Version 字段
@@ -69,9 +73,11 @@ UNINSTALL_CMD_SRC="$PROJECT_DIR/deploy/agent/uninstall.cmd"
 OFFICIAL_DIST="https://static.rust-lang.org/dist"
 
 # tier1/2：rustup 直接提供 std，stable 直编。
-# 不含 arm-unknown-linux-musleabihf（ARMv6）：deb/rpm 生态无 armv6 形态
-# （Debian armhf 与 RHEL armhfp 均为 armv7 语义），此前两目标折叠映射
-# 同一 armhf 架构名导致 deb 互相覆盖，armv6 包装机也无法运行 armv7 指令
+# 不含 armv5/armv6（arm-unknown-linux-musleabi/-musleabihf）：deb/rpm
+# 生态无 armv5/armv6 形态（Debian armhf 与 RHEL armhfp 均为 armv7 语义），
+# 此前 armv6 曾与 armv7 折叠映射同一 armhf 架构名导致 deb 互相覆盖，
+# 且 armv6 包装机也无法运行 armv7 指令——上游 promu 虽出 armv5/armv6
+# 二进制但无系统包渠道，本矩阵按分发渠道裁剪（与上游矩阵的差异点之一）
 TIER12_TARGETS=(
     x86_64-unknown-linux-musl
     aarch64-unknown-linux-musl
@@ -87,9 +93,15 @@ WINDOWS_TARGETS=(
     aarch64-pc-windows-gnullvm
 )
 
-# tier3：无官方 std 预编译，nightly -Z build-std 现场构建
+# tier3：无官方 std 预编译，nightly -Z build-std 现场构建。架构集对齐
+# 上游 .promu.yml 的 linux 交叉矩阵（ppc64/ppc64le/mips 系/s390x），
+# 本项目另补 riscv64gc/loongarch64（上游新版 promu 亦已纳入）；ppc 取
+# 64 位大端 powerpc64（IBM POWER 服务器形态，rpm ppc64 标准架构）而非
+# 32 位 powerpc——后者 deb/rpm 渠道已无主流发行版（Debian powerpc port
+# 移出官方、RHEL 无 32 位 ppc），与 armv5/armv6 同理按渠道裁剪
 TIER3_TARGETS=(
     powerpc64le-unknown-linux-musl
+    powerpc64-unknown-linux-musl
     s390x-unknown-linux-musl
     riscv64gc-unknown-linux-musl
     loongarch64-unknown-linux-musl
@@ -97,7 +109,6 @@ TIER3_TARGETS=(
     mipsel-unknown-linux-musl
     mips64-unknown-linux-muslabi64
     mips64el-unknown-linux-muslabi64
-    powerpc-unknown-linux-musl
 )
 
 # 解析 --list / --only / --tier3
@@ -159,6 +170,7 @@ deb_arch_of() {
         i686-unknown-linux-musl)        echo i386 ;;
         armv7-unknown-linux-musleabihf) echo armhf ;;
         powerpc64le-unknown-linux-musl) echo ppc64el ;;
+        powerpc64-unknown-linux-musl)   echo ppc64 ;;
         s390x-unknown-linux-musl)       echo s390x ;;
         riscv64gc-unknown-linux-musl)   echo riscv64 ;;
         loongarch64-unknown-linux-musl) echo loongarch64 ;;
@@ -166,7 +178,6 @@ deb_arch_of() {
         mipsel-unknown-linux-musl)      echo mipsel ;;
         mips64-unknown-linux-muslabi64) echo mips64 ;;
         mips64el-unknown-linux-muslabi64) echo mips64el ;;
-        powerpc-unknown-linux-musl)     echo powerpc ;;
         *) echo "" ;;
     esac
 }
@@ -179,6 +190,7 @@ rpm_arch_of() {
         i686-unknown-linux-musl)        echo i686 ;;
         armv7-unknown-linux-musleabihf) echo armv7hl ;;
         powerpc64le-unknown-linux-musl) echo ppc64le ;;
+        powerpc64-unknown-linux-musl)   echo ppc64 ;;
         s390x-unknown-linux-musl)       echo s390x ;;
         riscv64gc-unknown-linux-musl)   echo riscv64 ;;
         loongarch64-unknown-linux-musl) echo loongarch64 ;;
@@ -186,7 +198,6 @@ rpm_arch_of() {
         mipsel-unknown-linux-musl)      echo mipsel ;;
         mips64-unknown-linux-muslabi64) echo mips64 ;;
         mips64el-unknown-linux-muslabi64) echo mips64el ;;
-        powerpc-unknown-linux-musl)     echo ppc ;;
         *) echo "" ;;
     esac
 }

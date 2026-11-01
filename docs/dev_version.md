@@ -214,3 +214,44 @@
   cargo fmt、clippy、filesystem 7 单测（is_excluded_mountpoint 新增 /run 整树
   与 /runtime 非整词断言）通过；主仓侧关联版本记录见其 dev_version.md v0.55.0。
   Cargo.toml 0.5.3→0.5.4 联动（v0.5.4 为 z+1 不联动记录，实际版本自此条起递增）
+
+# v0.6.0
+
+# 2026110204373201
+# 2026年11月2日04点37分32秒 第1次修改
+
+1.Linux 默认采集器补全（功能新增，y 段 +1）：对齐 node_exporter 默认启用集
+  （registerCollector defaultEnabled 判定，排除平台专属 exec/netisr/partition
+  与默认禁用 swap/processes），新增 14 个采集器（crates/foims-agent/src/
+  collectors/，全部纯 Rust 文件读取，crate 内零 unsafe、零新增依赖、零 FFI）：
+  - tapestats（sysfs scsi_tape stats，ns 换算）、fibrechannel（sysfs fc_host
+    info+counter，u64::MAX 跳过）、mdadm（/proc/mdstat）、ipvs
+    （/proc/net/ip_vs 十六进制解析）；
+  - powersupplyclass（sysfs power_supply 50 族）、dmmultipath
+    （/sys/block/dm-*，slave device/state running|live=active）、infiniband
+    （sysfs 64 族）、nvme（sysfs 6 族）；
+  - nfs/nfsd（/proc/net/rpc/{nfs,nfsd}，nfsd 复用 nfs 解析函数；对齐 Go
+    parseClientV4Stats 赋值序与 ClientV4Stats 声明序在 LayoutGet/
+    GetDeviceInfo 的错位，e2e golden 验证 LayoutGet=90、GetDeviceInfo=1）、
+    netclass（默认路径纯 sysfs，上游 rtnetlink 为默认关闭 flag 不移植；
+    flags&1 推导 adminstate）；
+  - xfs（/proc/fs/xfs/stat 39 族）、btrfs（sys/fs/btrfs 11 族，Go 侧 ioctl
+    设备统计分支依赖 FFI 不移植、恒走 ioctl 失败回退分支）、zfs
+    （proc/spl/kstat/zfs 278 族，rw 行列序反转对齐、dataset 名保留行内空格）；
+  - timex 不移植：需 adjtimex 系统调用，无法纯 Rust 文件读取实现，按本仓
+    「不引入 libc/FFI」约束排除（默认启用集唯一未移植项）；
+  - fixtures 自持入库（提取自上游 sys.ttar 白名单子树 + no-clobber 合并，
+    修复 ttar 无尾换行内容的 "EOF" 粘连污染 19 个文件）；默认集 32→46。
+2.构建矩阵对齐 node_exporter/.github（build-agent.sh）：tier3 架构集对齐
+  .promu.yml 的 linux 交叉矩阵，ppc 由 32 位 powerpc（deb/rpm 渠道已无主流
+  发行版，与 armv6 同理裁剪）换为 64 位大端 powerpc64（rpm ppc64 标准架构），
+  deb_arch_of/rpm_arch_of 映射同步；armv5/armv6 裁剪依据与 darwin/netbsd/
+  openbsd 不产出的原因（对应平台采集器集合未移植，出二进制无采集内容）
+  注释写明。
+3.第三方归属：新增 THIRD_PARTY_NOTICES.md（node_exporter Apache-2.0 全文 +
+  原始 NOTICE 原文、windows_exporter MIT 全文，注明快照版本/移植范围/文件
+  级溯源方式，满足 Apache-2.0 第 4 条归属要求）；README 补充项目定位与
+  归属指引。
+4.验证：cargo fmt --check 通过；cargo clippy --workspace --all-targets
+  -D warnings 0 告警；cargo test --workspace 全绿（各 crate 合计 231 项，
+  含 14 采集器新增 fixture/golden 用例）。Cargo.toml 0.5.4→0.6.0 联动。
