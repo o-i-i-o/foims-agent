@@ -215,6 +215,22 @@
   与 /runtime 非整词断言）通过；主仓侧关联版本记录见其 dev_version.md v0.55.0。
   Cargo.toml 0.5.3→0.5.4 联动（v0.5.4 为 z+1 不联动记录，实际版本自此条起递增）
 
+# v0.7.1
+
+# 2026110213375701
+# 2026年11月2日13点37分57秒 第1次修改
+
+1.修复宿主 workspace 全量构建的产物名冲突（cargo#6313）：windows crate
+  移除显式 [[bin]]（bin 名默认取包名 foims-agent-windows），不再与 Linux
+  版 bin 同名 foims-agent——此前 cargo build --release 会对
+  target/release/foims-agent 报 output filename collision 警告（未来将
+  变硬错误）；两平台 bin 名与各自 main.rs USAGE 文案天然一致。
+2.build-agent.sh 同步：product_name_of 的 windows 分支改为
+  foims-agent-windows.exe（归集原料名），Windows zip 组包仍统一改名
+  foims-agent.exe（install.cmd/服务名/对外产物名不变）；脚本头注释同步。
+3.验证：cargo build --release 全 workspace 无冲突警告，四成员产物齐全
+  （foims-agent / foims-agent-windows 双 bin + 两 lib）。
+
 # v0.7.0
 
 # 2026110209520701

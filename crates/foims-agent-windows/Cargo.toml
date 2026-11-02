@@ -6,11 +6,6 @@ authors.workspace = true
 license.workspace = true
 description = "FOIMS Agent（Windows）：windows_exporter 采集器移植 + HTTP/3 mTLS 上报"
 
-# 二进制名与 Linux 版统一为 foims-agent（windows 目标构建时 cargo 自动追加
-# .exe），build-agent.sh 归集与服务端组包的产物名两侧一致
-[[bin]]
-name = "foims-agent"
-path = "src/main.rs"
 
 [dependencies]
 # 平台无关框架（采集器 trait/抓取编排/上报 transport）
