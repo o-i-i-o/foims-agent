@@ -119,15 +119,18 @@ pub struct AgentReportBatch {
     pub dropped: u64,
 }
 
-/// 上报响应控制面：服务端远程调整上报间隔与采集器开关、通告最新版本；
-/// agent 下一轮生效。
+/// 上报响应控制面（受控同步副本，与服务端 foims-common/src/report.rs 一致）。
+///
+/// 逐帧实时上报后 agent 以采集节奏驱动上报，`report_interval` 分发与
+/// collector 远程开关均无消费方；字段保留仅为联动旧协议兼容。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReportResponse {
-    /// 下一次上报间隔（秒）。
+    /// 下一次上报间隔（秒）：恒为实时逐帧节奏（1）。
     pub report_interval: u64,
     /// 采集器开关（键为采集器名）；缺省/缺失视为开启。
     pub collectors: BTreeMap<String, bool>,
-    /// 服务端通告的最新 agent 版本（一期仅展示，不做自动升级）。
+    /// client 版本通告：已废止（client 版本独立自管理，服务端无权威来源），
+    /// 恒为空字符串，仅为旧版 agent 反序列化兼容保留。
     pub latest_version: String,
 }
 

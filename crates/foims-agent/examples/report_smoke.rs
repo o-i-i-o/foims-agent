@@ -66,7 +66,7 @@ fn run(args: Vec<String>) -> Result<ExitCode, SmokeError> {
         .or_else(|| std::env::var(ENV_CERT_DIR).ok())
         .unwrap_or_else(|| DEFAULT_CERT_DIR.to_string());
 
-    let config = ReporterConfig::build(addr, token, None, PathBuf::from(cert_dir))?;
+    let config = ReporterConfig::build(addr, token, PathBuf::from(cert_dir))?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

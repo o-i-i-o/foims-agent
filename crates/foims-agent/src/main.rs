@@ -238,11 +238,7 @@ fn run_reporter(cli: &Cli) -> ExitCode {
         if cli.once {
             match reporter.report_once().await {
                 Ok(response) => {
-                    tracing::info!(
-                        interval = response.report_interval,
-                        latest_version = %response.latest_version,
-                        "单次上报完成"
-                    );
+                    tracing::info!(interval = response.report_interval, "单次上报完成");
                     ExitCode::SUCCESS
                 }
                 Err(error) => {

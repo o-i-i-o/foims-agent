@@ -215,6 +215,34 @@
   与 /runtime 非整词断言）通过；主仓侧关联版本记录见其 dev_version.md v0.55.0。
   Cargo.toml 0.5.3→0.5.4 联动（v0.5.4 为 z+1 不联动记录，实际版本自此条起递增）
 
+# v0.7.0
+
+# 2026110209520701
+# 2026年11月2日09点52分07秒 第1次修改
+
+1.上报形态改为逐帧实时（业务变更 y+1，与服务端 v0.59.0 同步落地）：
+  - 稳态上报节奏：采集任务每 collect_interval_secs 产帧，上报循环同拍取
+    队列即发——常态单帧直发 `POST /agent/v1/report` 逐帧入库（快照与历史
+    与服务端同步到秒级）；积压（采集耗时波动、断网缓冲）时自动多帧组批
+    一次发送，AgentReportBatch 仅作断网补传载体（120 帧 / 8MiB 上限与
+    对半拆分重试口径不变）；
+  - 移除实时旁路通道：删除 RealtimeChannel / REALTIME_PATH /
+    REALTIME_CHANNEL_CAP 与每帧 best-effort 直发（服务端 /agent/v1/realtime
+    已同版本移除），每机由两条 QUIC 常驻连接收敛为一条；
+  - 上报间隔协议面废止：ReporterConfig 删 interval_secs 与服务端下发
+    report_interval 消费逻辑（apply_interval/clamp_interval/MIN/MAX/
+    DEFAULT 间隔常量删除），agent.toml 遗留 report_interval_secs 键由
+    反序列化忽略；退避基准改为采集节拍，删除 ±10% 抖动及其 rand 依赖
+    （foims-agent-core）；
+  - --once 日志不再打印 latest_version（服务端已废止 client 版本通告，
+    响应 latest_version 恒空，字段为旧协议兼容保留）；
+  - 协议受控副本 foims-protocol/src/report.rs 注释与主仓 foims-common
+    同步（ReportResponse 语义注明废止口径），测试同步清理
+    （test_config_from_toml 去 interval 断言；jitter/clamp_interval 用例
+    随实现删除）。
+2.验证：cargo fmt 通过；cargo clippy --workspace --all-targets -D warnings
+  0 告警；cargo test -p foims-agent-core 11 项全绿。Cargo.toml 0.6.0→0.7.0。
+
 # v0.6.0
 
 # 2026110204373201

@@ -23,8 +23,6 @@ tokio = { workspace = true }
 toml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# 上报间隔 ±10% 抖动
-rand = { workspace = true }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }
