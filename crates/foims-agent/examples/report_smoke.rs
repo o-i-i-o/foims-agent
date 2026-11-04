@@ -7,7 +7,7 @@
 //! - `cargo run -p foims-agent --example report_smoke -- 127.0.0.1:9100 <64hex-token> --cert-dir /tmp/certs`
 //! - `REPORT_ADDR=127.0.0.1:9100 REPORT_TOKEN=<token> cargo run -p foims-agent --example report_smoke`
 //!
-//! 成功输出响应状态与 ReportResponse JSON；失败打印错误并以非零码退出。
+//! 成功输出响应状态；失败打印错误并以非零码退出。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -74,11 +74,8 @@ fn run(args: Vec<String>) -> Result<ExitCode, SmokeError> {
         .map_err(|error| format!("构建 tokio 运行时失败: {error}"))?;
     runtime.block_on(async move {
         let mut reporter = Reporter::new(config, LinuxPlatform::new());
-        let response = reporter.report_once().await?;
-        let json = serde_json::to_string_pretty(&response)
-            .map_err(|error| format!("响应编码失败: {error}"))?;
-        tracing::info!(status = 200, "上报成功，服务端响应:");
-        tracing::info!("\n{json}");
+        reporter.report_once().await?;
+        tracing::info!(status = 200, "上报成功");
         Ok(ExitCode::SUCCESS)
     })
 }

@@ -215,6 +215,26 @@
   与 /runtime 非整词断言）通过；主仓侧关联版本记录见其 dev_version.md v0.55.0。
   Cargo.toml 0.5.3→0.5.4 联动（v0.5.4 为 z+1 不联动记录，实际版本自此条起递增）
 
+# v0.8.0
+
+# 2026110413182801
+# 2026年11月4日13点18分28秒 第1次修改
+
+1.上报响应控制面退役（协议变更 y+1，与服务端 v0.80.0 同步落地）：
+  - 协议受控副本 foims-protocol/src/report.rs 删除 ReportResponse
+    （report_interval / collectors / latest_version 三个字段均无消费方，
+    属旧协议兼容残留）；服务端上报响应改为空 JSON 对象；
+  - foims-agent-core 上报链路不再解析响应体：send_batch/send_report/
+    report_once 返回 Result<()>，成功以 HTTP 200 判定；删除
+    log_response 控制面日志与 ReportResponse 导入；
+  - --once 与冒烟客户端日志不再打印响应字段（report_smoke 不再回显
+    响应 JSON）。
+2.部署顺序：新版 agent 对旧服务端兼容（旧服务端仍回 ReportResponse JSON，
+  新版 agent 不解析响应体），建议先升级 agent 再升级服务端；旧版 agent
+  对新服务端会因响应缺字段反序列化失败而持续重试，需随后升级。
+3.验证：cargo fmt 通过；cargo clippy --workspace --all-targets -D warnings
+  0 告警；cargo test --workspace 全绿。Cargo.toml 0.7.0→0.8.0。
+
 # v0.7.1
 
 # 2026110213375701

@@ -5,8 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use std::collections::BTreeMap;
-
 /// 系统信息子结构（agent 采集自 uname/os-release/proc）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReportSystem {
@@ -105,11 +103,11 @@ pub struct AgentReport {
     pub processes: u32,
 }
 
-/// `POST /agent/v1/report` 批量请求体：agent 采集（高频）与上报（低频）解耦后，
-/// 一个上报周期内的多帧采集快照打包一次发送。
+/// `POST /agent/v1/report` 批量请求体：逐帧实时上报的断网补传载体——常态
+/// 单帧直发，采集积压（采集耗时波动、断网缓冲）时自动多帧组批一次发送。
 ///
-/// 兼容性：单帧 `AgentReport` 仍被服务端接受（旧版 agent 平滑过渡）；
-/// 服务端按请求体形态自动区分（含 `frames` 字段视为批量）。
+/// 兼容性：单帧 `AgentReport` 仍被服务端接受（agent `--once` 与冒烟客户端
+/// 为单帧单报）；服务端按请求体形态自动区分（含 `frames` 字段视为批量）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentReportBatch {
     /// 本批次帧序列（按采集时间升序；空批次无意义，服务端拒绝）。
@@ -117,21 +115,6 @@ pub struct AgentReportBatch {
     /// 组批以来因本机队列满被丢弃的帧数（观测用，不影响入库）。
     #[serde(default)]
     pub dropped: u64,
-}
-
-/// 上报响应控制面（受控同步副本，与服务端 foims-common/src/report.rs 一致）。
-///
-/// 逐帧实时上报后 agent 以采集节奏驱动上报，`report_interval` 分发与
-/// collector 远程开关均无消费方；字段保留仅为联动旧协议兼容。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ReportResponse {
-    /// 下一次上报间隔（秒）：恒为实时逐帧节奏（1）。
-    pub report_interval: u64,
-    /// 采集器开关（键为采集器名）；缺省/缺失视为开启。
-    pub collectors: BTreeMap<String, bool>,
-    /// client 版本通告：已废止（client 版本独立自管理，服务端无权威来源），
-    /// 恒为空字符串，仅为旧版 agent 反序列化兼容保留。
-    pub latest_version: String,
 }
 
 /// `POST /agent/v1/renew` 请求体：agent 携带当前客户端证书 PEM 申请续期
@@ -230,18 +213,6 @@ mod tests {
         let minimal: AgentReportBatch = serde_json::from_str(r#"{"frames": []}"#).unwrap_or(batch);
         assert!(minimal.frames.is_empty());
         assert_eq!(minimal.dropped, 0);
-    }
-
-    #[test]
-    fn response_json_roundtrip() {
-        let response = ReportResponse {
-            report_interval: 60,
-            collectors: BTreeMap::new(),
-            latest_version: "0.21.18".to_string(),
-        };
-        let json = serde_json::to_string(&response).unwrap_or_default();
-        let parsed: ReportResponse = serde_json::from_str(&json).unwrap_or(response.clone());
-        assert_eq!(parsed, response);
     }
 
     #[test]

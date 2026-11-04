@@ -265,8 +265,8 @@ fn run_reporter(cli: &Cli) -> ExitCode {
         let mut reporter = Reporter::new(config, WindowsPlatform::new());
         if cli.once {
             match reporter.report_once().await {
-                Ok(response) => {
-                    tracing::info!(interval = response.report_interval, "单次上报完成");
+                Ok(()) => {
+                    tracing::info!("单次上报完成");
                     ExitCode::SUCCESS
                 }
                 Err(error) => {

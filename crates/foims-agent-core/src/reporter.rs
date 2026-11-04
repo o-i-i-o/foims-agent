@@ -17,8 +17,8 @@
 //! - 循环：启动立即采集一帧并上报 → 每采集间隔一帧 → 失败指数退避
 //!   （采集节拍×2^n 封顶 600s，成功重置）；节拍不再抖动（秒级逐帧下
 //!   齐发波峰由各机启动时刻自然错开）；
-//! - 控制面：legacy 兼容——响应 ReportResponse 字段保持反序列化，不做
-//!   任何消费（report_interval / collectors / latest_version 均已废止）；
+//! - 控制面：上报响应体不解析（服务端仅回空 JSON 对象，无控制面语义），
+//!   成功以 HTTP 200 判定；
 //! - 证书续期：剩余寿命低于阈值时经现有 mTLS 链路请求换发，产物落盘
 //!   委托 [`Platform::persist_renewed_material`]（权限模型平台各异）。
 //!
@@ -33,9 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use bytes::{Buf, Bytes};
-use foims_protocol::report::{
-    AgentReport, AgentReportBatch, CertRenewRequest, CertRenewResponse, ReportResponse,
-};
+use foims_protocol::report::{AgentReport, AgentReportBatch, CertRenewRequest, CertRenewResponse};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use serde::Deserialize;
@@ -419,14 +417,14 @@ impl<P: Platform> Reporter<P> {
     }
 
     /// 单轮「采集 + 上报」（--once 与冒烟客户端用，单帧单报）
-    pub async fn report_once(&mut self) -> Result<ReportResponse, ReporterError> {
+    pub async fn report_once(&mut self) -> Result<(), ReporterError> {
         let report = self.collect_report().await?;
-        let response = self.send_report(&report).await;
-        if response.is_ok() {
+        let result = self.send_report(&report).await;
+        if result.is_ok() {
             // 上报成功说明链路可用，顺带检查证书是否临近过期
             self.maybe_renew_cert().await;
         }
-        response
+        result
     }
 
     /// 上报主循环（逐帧实时）：启动立即采集一帧并上报 → 采集任务按采集
@@ -493,9 +491,8 @@ impl<P: Platform> Reporter<P> {
         }
         let batch = AgentReportBatch { frames, dropped };
         match self.send_batch(&batch).await {
-            Ok(response) => {
+            Ok(()) => {
                 self.fail_count = 0;
-                self.log_response(&response);
                 self.maybe_renew_cert().await;
             }
             Err(error) => {
@@ -532,14 +529,6 @@ impl<P: Platform> Reporter<P> {
         };
         tracing::debug!(secs, "休眠至下一轮");
         tokio::time::sleep(Duration::from_secs(secs)).await;
-    }
-
-    /// 控制面日志：legacy 字段（report_interval / collectors / latest_version）
-    /// 已无消费方，仅透传 collectors 非空的调试线索
-    fn log_response(&self, response: &ReportResponse) {
-        if !response.collectors.is_empty() {
-            tracing::debug!(collectors = ?response.collectors, "服务端采集器开关");
-        }
     }
 
     /// 证书剩余寿命检查：低于阈值时经 HTTP/3 mTLS 请求服务端换发。
@@ -667,35 +656,33 @@ impl<P: Platform> Reporter<P> {
         build_h3_transport(&self.config.server_addr, &self.config.cert_dir).await
     }
 
-    /// 经 HTTP/3 mTLS 上报一批并解析控制面响应
-    async fn send_batch(
-        &mut self,
-        batch: &AgentReportBatch,
-    ) -> Result<ReportResponse, ReporterError> {
+    /// 经 HTTP/3 mTLS 上报一批（成功以 HTTP 200 判定，响应体不解析）
+    async fn send_batch(&mut self, batch: &AgentReportBatch) -> Result<(), ReporterError> {
         let body = serde_json::to_vec(batch)
             .map_err(|error| ReporterError::Collect(format!("序列化批量上报体: {error}")))?;
-        let (status, resp_body) = self.h3_exchange(REPORT_PATH, body).await?;
+        let (status, _) = self.h3_exchange(REPORT_PATH, body).await?;
         if status != http::StatusCode::OK {
             return Err(ReporterError::Report(format!(
                 "服务端返回 {}（401 token 无效 / 403 已吊销 / 413 超限 / 429 过频）",
                 status
             )));
         }
-        serde_json::from_slice(&resp_body).map_err(ReporterError::from)
+        Ok(())
     }
 
-    /// 经 HTTP/3 mTLS 上报单帧并解析控制面响应（--once / 冒烟路径）
-    async fn send_report(&mut self, report: &AgentReport) -> Result<ReportResponse, ReporterError> {
+    /// 经 HTTP/3 mTLS 上报单帧（--once / 冒烟路径；成功以 HTTP 200 判定，
+    /// 响应体不解析）
+    async fn send_report(&mut self, report: &AgentReport) -> Result<(), ReporterError> {
         let body = serde_json::to_vec(report)
             .map_err(|error| ReporterError::Collect(format!("序列化上报体: {error}")))?;
-        let (status, resp_body) = self.h3_exchange(REPORT_PATH, body).await?;
+        let (status, _) = self.h3_exchange(REPORT_PATH, body).await?;
         if status != http::StatusCode::OK {
             return Err(ReporterError::Report(format!(
                 "服务端返回 {}（401 token 无效 / 403 已吊销 / 413 超限 / 429 过频）",
                 status
             )));
         }
-        serde_json::from_slice(&resp_body).map_err(ReporterError::from)
+        Ok(())
     }
 }
 
